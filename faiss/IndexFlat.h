@@ -102,7 +102,7 @@ struct IndexFlatFusion : IndexFlat {
         this->codes.resize((ntotal + n) * code_size);
         this->filters.resize((ntotal + n) * filter_size);
         sa_encode(n, x, codes.data() + (ntotal * code_size));
-        sa_encode(n, filters, this->filters.data() + (ntotal * filter_size));
+        memcpy(this->filters.data() + (ntotal * filter_size), filters, n * filter_size);
 
         ntotal += n;
     }
