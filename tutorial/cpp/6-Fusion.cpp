@@ -57,7 +57,7 @@ int main() {
         xqf[fd * i] += i / 1000.;
     }
 
-    faiss::IndexFlatFusion index(d, fd); // call constructor
+    faiss::IndexFlatFusion index(d, num_filters, fd);  // call constructor
     printf("is_trained = %s\n", index.is_trained ? "true" : "false");
     index.add(nb, xb, xbf);              // add vectors to the index
     printf("ntotal = %zd\n", index.ntotal);

@@ -85,8 +85,8 @@ struct IndexFlatL2 : IndexFlat {
 
 struct IndexFlatFusion : IndexFlat {
     explicit IndexFlatFusion(idx_t d) : IndexFlat(d, METRIC_FUSION) {}
-    explicit IndexFlatFusion(idx_t d, size_t filter_size)
-            : IndexFlat(d, METRIC_FUSION), filter_size(filter_size) {}
+    explicit IndexFlatFusion(idx_t d, size_t num_filters, size_t filter_dim)
+            : IndexFlat(d, METRIC_FUSION), filter_size(sizeof(float)*num_filters*filter_dim) {}
     IndexFlatFusion() {}
 
     size_t filter_size;
