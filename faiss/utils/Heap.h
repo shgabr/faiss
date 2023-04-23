@@ -371,7 +371,8 @@ struct HeapArray {
     size_t k;  ///< allocated size per heap
     TI* ids;   ///< identifiers (size nh * k)
     T* val;    ///< values (distances or similarities), size nh * k
-
+    T* f_val;  ///< values for filter distances (size nh * k)
+    
     /// Return the list of values for a heap
     T* get_val(size_t key) {
         return val + key * k;

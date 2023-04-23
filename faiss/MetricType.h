@@ -26,7 +26,7 @@ enum MetricType {
     METRIC_Linf,              ///< infinity distance
     METRIC_Lp,                ///< L_p distance, p is given by a faiss::Index
                               /// metric_arg
-
+    METRIC_FUSION,            /// The fusion distance for filtered-search
     /// some additional metrics defined in scipy.spatial.distance
     METRIC_Canberra = 20,
     METRIC_BrayCurtis,

@@ -139,7 +139,7 @@ struct ReservoirTopN {
     size_t n;        // number of requested elements
     size_t capacity; // size of storage
 
-    T threshold; // current threshold
+    T threshold;     // current threshold
 
     ReservoirTopN() {}
 

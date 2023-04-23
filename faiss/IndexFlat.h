@@ -13,6 +13,9 @@
 #include <vector>
 
 #include <faiss/IndexFlatCodes.h>
+#include <faiss/impl/FaissAssert.h>
+#include <faiss/utils/Heap.h>
+#include <faiss/utils/distances.h>
 
 namespace faiss {
 
@@ -80,11 +83,62 @@ struct IndexFlatL2 : IndexFlat {
     IndexFlatL2() {}
 };
 
+struct IndexFlatFusion : IndexFlat {
+    explicit IndexFlatFusion(idx_t d) : IndexFlat(d, METRIC_FUSION) {}
+    explicit IndexFlatFusion(idx_t d, size_t filter_size)
+            : IndexFlat(d, METRIC_FUSION), filter_size(filter_size) {}
+    IndexFlatFusion() {}
+
+    size_t filter_size;
+    std::vector<uint8_t> filters;
+    const float* get_xf() const {
+        return (const float*)filters.data();
+    }
+    void add(idx_t n, const float* x, const float* filters) {
+        FAISS_THROW_IF_NOT(is_trained);
+        if (n == 0) {
+            return;
+        }
+        this->codes.resize((ntotal + n) * code_size);
+        this->filters.resize((ntotal + n) * filter_size);
+        sa_encode(n, x, codes.data() + (ntotal * code_size));
+        sa_encode(n, filters, this->filters.data() + (ntotal * filter_size));
+
+        ntotal += n;
+    }
+    // override the search method to use the fusion distance
+    void search(
+            idx_t n,                // number of queries
+            const float* x,         // input queries data
+            const float* x_filters, // input queries filters
+            int nf,                 // number of filters
+            int filter_dimension,   // size of each filter
+            idx_t k,            // Number of neihbors to retrieve for each query
+            float* distances,   // output: L2 distances
+            float* f_distances, // output: Fusion distances
+            idx_t* labels,      // output: labels
+            const SearchParameters* params = nullptr) {
+        float_maxheap_array_t res = {
+                size_t(n), size_t(k), labels, distances, f_distances};
+        knn_fusion(
+                x,
+                x_filters,
+                get_xb(),
+                get_xf(),
+                d,
+                n,
+                nf,
+                filter_dimension,
+                ntotal,
+                &res);
+    }
+};
+
 /// optimized version for 1D "vectors".
 struct IndexFlat1D : IndexFlatL2 {
     bool continuous_update = true; ///< is the permutation updated continuously?
 
-    std::vector<idx_t> perm; ///< sorted database indices
+    std::vector<idx_t> perm;       ///< sorted database indices
 
     explicit IndexFlat1D(bool continuous_update = true);
 

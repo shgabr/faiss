@@ -308,15 +308,76 @@ void knn_L2sqr(
         const float* y_norm2 = nullptr,
         const IDSelector* sel = nullptr);
 
-/** Find the max inner product neighbors for nx queries in a set of ny vectors
- * indexed by ids. May be useful for re-ranking a pre-selected vector list
+/**
+ * @brief
+ *
+ * @param x             query vectors, size nx * d
+ * @param x_filters     query filters, size nx * fd
+ * @param y             database vectors, size ny * d
+ * @param y_filters     database filters, size ny * fd
+ * @param d             dimension of each vector
+ * @param nx            number of query vectors
+ * @param nf            number of filters
+ * @param fd            dimension of each filter
+ * @param ny            number of database vectors
+ * @param k             number of nearest neighbors
+ * @param distances     output distances, size nq * k
+ * @param f_distances   output filter distances, size nq * k
+ * @param indexes       output vector ids, size nq * k
+ * @param y_norm2       (optional) norms for the y vectors (nullptr or size ny)
+ * @param sel           search in this subset of vectors
+ */
+
+void knn_fusion(
+        const float* x,
+        const float* x_filters,
+        const float* y,
+        const float* y_filters,
+        size_t d,
+        size_t nx,
+        size_t nf,
+        size_t fd,
+        size_t ny,
+        size_t k,
+        float* distances,
+        float* f_distances,
+        int64_t* indexes,
+        const float* y_norm2 = nullptr,
+        const IDSelector* sel = nullptr);
+
+/** Return the k nearest neighors of each of the nx vectors x among the ny
+ *  vector y, for the fusion distance
+ * @param x    query vectors, size nx * d
+ * @param y    database vectors, size ny * d
+ * @param res  result heap strcture, which also provides k. Sorted on output
+ * @param y_norm2    (optional) norms for the y vectors (nullptr or size ny)
+ * @param sel  search in this subset of vectors
+ */
+void knn_fusion(
+        const float* x,
+        const float* x_filters,
+        const float* y,
+        const float* y_filters,
+        size_t d,
+        size_t nx,
+        size_t nf,
+        size_t fd,
+        size_t ny,
+        float_maxheap_array_t* res,
+        const float* y_norm2 = nullptr,
+        const IDSelector* sel = nullptr);
+
+/** Find the max inner product neighbors for nx queries in a set of ny
+ * vectors indexed by ids. May be useful for re-ranking a pre-selected
+ * vector list
  *
  * @param x    query vectors, size nx * d
  * @param y    database vectors, size (max(ids) + 1) * d
- * @param ids  subset of database vectors to consider, size (nx, nsubset)
+ * @param ids  subset of database vectors to consider, size (nx,
+ * nsubset)
  * @param res  result structure
- * @param ld_ids stride for the ids array. -1: use nsubset, 0: all queries
- * process the same subset
+ * @param ld_ids stride for the ids array. -1: use nsubset, 0: all
+ * queries process the same subset
  */
 void knn_inner_products_by_idx(
         const float* x,

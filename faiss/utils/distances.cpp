@@ -325,6 +325,158 @@ void exhaustive_L2sqr_blas(
     exhaustive_L2sqr_blas_default_impl(x, y, d, nx, ny, res);
 }
 
+float computeManhattanDistance(
+        const float* x,
+        const float* y,
+        size_t dimension) {
+    const float* pEnd4 = x + ((dimension >> 2) << 2);
+    const float* pEnd1 = x + dimension;
+
+    float diff = 0;
+
+    while (x < pEnd4) {
+        float c1 = ((float)(*x++) - (float)(*y++));
+        diff += abs(c1);
+        c1 = ((float)(*x++) - (float)(*y++));
+        diff += abs(c1);
+        c1 = ((float)(*x++) - (float)(*y++));
+        diff += abs(c1);
+        c1 = ((float)(*x++) - (float)(*y++));
+        diff += abs(c1);
+    }
+    while (x < pEnd1) {
+        float c1 = ((float)(*x++) - (float)(*y++));
+        diff += abs(c1);
+    }
+    return diff;
+}
+
+const int W = 0.25;
+
+float ComputeFiltersDistance(
+        const float* pX_filters,
+        const float* pY_filters,
+        size_t dimension_f,
+        size_t filtersNum,
+        const float xy_distance) {
+    // if there are no filters, return 0
+    if (filtersNum == 0)
+        return 0.0;
+
+    float filtersDistance = 0;
+    float bias = 10 * (W * xy_distance + 3.322);
+
+    // loop over all filters
+    for (int filter_idx = 0; filter_idx < filtersNum; filter_idx++) {
+        float expo = computeManhattanDistance(
+                &pX_filters[filter_idx * dimension_f],
+                &pY_filters[filter_idx * dimension_f],
+                dimension_f);
+        if (expo ==
+            0) // if the manhattan distance is 0, then the filters are the same
+            continue;
+        float logg = log10(expo + 2);
+        filtersDistance += bias - (1 / logg);
+    }
+
+    return filtersDistance / filtersNum;
+}
+float computeFusionDistance(const float L2_dist, const float filters_dist) {
+    return W * L2_dist + filters_dist;
+}
+
+template <class ResultHandler>
+void exhaustive_fusion_blas_default_impl(
+        const float* x,
+        const float* x_filters,
+        const float* y,
+        const float* y_filters,
+        size_t d,
+        size_t nx,
+        size_t ny,
+        int nf,
+        int fd,
+        ResultHandler& res,
+        const float* y_norms = nullptr) {
+    // BLAS does not like empty matrices
+    if (nx == 0 || ny == 0)
+        return;
+
+    /* block sizes */
+    const size_t bs_x = distance_compute_blas_query_bs;
+    const size_t bs_y = distance_compute_blas_database_bs;
+    // const size_t bs_x = 16, bs_y = 16;
+    std::unique_ptr<float[]> ip_block(new float[bs_x * bs_y]);
+    std::unique_ptr<float[]> x_norms(new float[nx]);
+    std::unique_ptr<float[]> del2;
+
+    fvec_norms_L2sqr(x_norms.get(), x, d, nx);
+
+    if (!y_norms) {
+        float* y_norms2 = new float[ny];
+        del2.reset(y_norms2);
+        fvec_norms_L2sqr(y_norms2, y, d, ny);
+        y_norms = y_norms2;
+    }
+
+    for (size_t i0 = 0; i0 < nx; i0 += bs_x) {
+        size_t i1 = i0 + bs_x;
+        if (i1 > nx)
+            i1 = nx;
+
+        res.begin_multiple(i0, i1);
+
+        for (size_t j0 = 0; j0 < ny; j0 += bs_y) {
+            size_t j1 = j0 + bs_y;
+            if (j1 > ny)
+                j1 = ny;
+            /* compute the actual dot products */
+            {
+                float one = 1, zero = 0;
+                FINTEGER nyi = j1 - j0, nxi = i1 - i0, di = d;
+                sgemm_("Transpose",
+                       "Not transpose",
+                       &nyi,
+                       &nxi,
+                       &di,
+                       &one,
+                       y + j0 * d,
+                       &di,
+                       x + i0 * d,
+                       &di,
+                       &zero,
+                       ip_block.get(),
+                       &nyi);
+            }
+#pragma omp parallel for
+            for (int64_t i = i0; i < i1; i++) {
+                float* ip_line = ip_block.get() + (i - i0) * (j1 - j0);
+
+                for (size_t j = j0; j < j1; j++) {
+                    float ip = *ip_line;
+                    float l2_dis = x_norms[i] + y_norms[j] - 2 * ip;
+
+                    // negative values can occur for identical vectors
+                    // due to roundoff errors
+                    if (l2_dis < 0)
+                        l2_dis = 0;
+                    float filters_dist = ComputeFiltersDistance(
+                            x_filters + i * fd,
+                            y_filters + j * fd,
+                            fd,
+                            nf,
+                            l2_dis);
+                    *ip_line = computeFusionDistance(l2_dis, filters_dist);
+                    ip_line++;
+                }
+            }
+            res.add_results(j0, j1, ip_block.get());
+        }
+        res.end_multiple();
+        InterruptCallback::check();
+    }
+}
+
 #ifdef __AVX2__
 void exhaustive_L2sqr_blas_cmax_avx2(
         const float* x,
@@ -720,6 +872,82 @@ void knn_L2sqr(
         const IDSelector* sel) {
     FAISS_THROW_IF_NOT(res->nh == nx);
     knn_L2sqr(x, y, d, nx, ny, res->k, res->val, res->ids, y_norm2, sel);
+}
+
+/***************************************************************************
+ * KNN fusion
+ ***************************************************************************/
+void knn_fusion(
+        const float* x,
+        const float* x_filters,
+        const float* y,
+        const float* y_filters,
+        size_t d,
+        size_t nx,
+        size_t nf,
+        size_t fd,
+        size_t ny,
+        size_t k,
+        float* distances,
+        float* f_distances,
+        int64_t* indexes,
+        const float* y_norm2,
+        const IDSelector* sel) {
+    int64_t imin = 0;
+    if (auto selr = dynamic_cast<const IDSelectorRange*>(sel)) {
+        imin = std::max(selr->imin, int64_t(0));
+        int64_t imax = std::min(selr->imax, int64_t(ny));
+        ny = imax - imin;
+        y += d * imin;
+        sel = nullptr;
+    }
+
+    ReservoirResultHandler<CMax<float, int64_t>> res(nx, distances, indexes, k);
+
+    exhaustive_fusion_blas_default_impl(
+            x, x_filters, y, y_filters, d, nx, ny, nf, fd, res);
+
+    if (imin != 0) {
+        for (size_t i = 0; i < nx * k; i++) {
+            if (indexes[i] >= 0) {
+                indexes[i] += imin;
+            }
+        }
+    }
+
+    return;
+}
+
+void knn_fusion(
+        const float* x,
+        const float* x_filters,
+        const float* y,
+        const float* y_filters,
+        size_t d,
+        size_t nx,
+        size_t nf,
+        size_t fd,
+        size_t ny,
+        float_maxheap_array_t* res,
+        const float* y_norm2,
+        const IDSelector* sel) {
+    FAISS_THROW_IF_NOT(res->nh == nx);
+    knn_fusion(
+            x,
+            x_filters,
+            y,
+            y_filters,
+            d,
+            nx,
+            nf,
+            fd,
+            ny,
+            res->k,
+            res->val,
+            res->f_val,
+            res->ids,
+            y_norm2,
+            sel);
 }
 
 /***************************************************************************
