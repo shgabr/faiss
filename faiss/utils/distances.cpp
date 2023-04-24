@@ -351,7 +351,7 @@ float computeManhattanDistance(
     return diff;
 }
 
-const int W = 0.25;
+const float W = 0.25;
 
 float ComputeFiltersDistance(
         const float* pX_filters,
@@ -461,8 +461,8 @@ void exhaustive_fusion_blas_default_impl(
                     if (l2_dis < 0)
                         l2_dis = 0;
                     float filters_dist = ComputeFiltersDistance(
-                            x_filters + i * fd,
-                            y_filters + j * fd,
+                            x_filters + i * nf * fd,
+                            y_filters + j * nf * fd,
                             fd,
                             nf,
                             l2_dis);
