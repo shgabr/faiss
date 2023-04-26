@@ -211,7 +211,7 @@ def handle_NSG(the_class):
 
 def handle_Index(the_class):
 
-    def replacement_add(self, x):
+    def replacement_add(self, x, f = None):
         """Adds vectors to the index.
         The index must be trained before vectors can be added to it.
         The vectors are implicitly numbered in sequence. When `n` vectors are
@@ -222,12 +222,18 @@ def handle_Index(the_class):
         x : array_like
             Query vectors, shape (n, d) where d is appropriate for the index.
             `dtype` must be float32.
+        f : array_like, optional
+            Filter vectors, shape (n, m, fd) where m is the number of filters per data node
+            and fd is the dimension of the filter. `dtype` must be float32.
         """
-
         n, d = x.shape
         assert d == self.d
         x = np.ascontiguousarray(x, dtype='float32')
-        self.add_c(n, swig_ptr(x))
+        if f is None:
+            self.add_c(n, swig_ptr(x))
+        else:
+            f = np.ascontiguousarray(f, dtype='float32')
+            self.add_c(n, swig_ptr(x), swig_ptr(f))
 
     def replacement_add_with_ids(self, x, ids):
         """Adds vectors with arbitrary ids to the index (not all indexes support this).
@@ -297,7 +303,7 @@ def handle_Index(the_class):
         x = np.ascontiguousarray(x, dtype='float32')
         self.train_c(n, swig_ptr(x))
 
-    def replacement_search(self, x, k, *, params=None, D=None, I=None):
+    def replacement_search(self, x, k, xf=None, params=None, D=None, FD=None, I=None):
         """Find the k nearest neighbors of the set of vectors x in the index.
 
         Parameters
@@ -307,10 +313,15 @@ def handle_Index(the_class):
             `dtype` must be float32.
         k : int
             Number of nearest neighbors.
+        xf : array_like, optional
+            Filter vectors, shape (n, m, fd) where m is the number of filters per data node
+            and fd is the dimension of the filter. `dtype` must be float32.
         params : SearchParameters
             Search parameters of the current search (overrides the class-level params)
         D : array_like, optional
             Distance array to store the result.
+        FD : array_like, optional
+            Filter distance array to store the result.
         I : array_like, optional
             Labels array to store the results.
 
@@ -319,6 +330,9 @@ def handle_Index(the_class):
         D : array_like
             Distances of the nearest neighbors, shape (n, k). When not enough results are found
             the label is set to +Inf or -Inf.
+        FD : array_like
+            Filter distances of the nearest neighbors, shape (n, k). When not enough results
+            are found the label is set to +Inf or -Inf.
         I : array_like
             Labels of the nearest neighbors, shape (n, k).
             When not enough results are found, the label is set to -1
@@ -339,9 +353,20 @@ def handle_Index(the_class):
             I = np.empty((n, k), dtype=np.int64)
         else:
             assert I.shape == (n, k)
+        
+        if FD is None:
+            FD = np.empty((n, k), dtype=np.float32)
+        else:
+            assert FD.shape == (n, k)
 
-        self.search_c(n, swig_ptr(x), k, swig_ptr(D), swig_ptr(I), params)
-        return D, I
+        if xf is None:
+            self.search_c(n, swig_ptr(x), k, swig_ptr(D), swig_ptr(I), params)
+        else:
+            nt, nf, df = xf.shape
+            assert nt == n
+            xf = np.ascontiguousarray(xf, dtype='float32')
+            self.search_c(n, swig_ptr(x), swig_ptr(xf), nf, df, k, swig_ptr(D), swig_ptr(FD), swig_ptr(I), params)
+        return D, FD, I
 
     def replacement_search_and_reconstruct(self, x, k, *, params=None, D=None, I=None, R=None):
         """Find the k nearest neighbors of the set of vectors x in the index,
