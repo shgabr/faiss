@@ -351,7 +351,8 @@ float computeManhattanDistance(
     return diff;
 }
 
-const float W = 0.25;
+const float W = 3.0;
+const float filterWeight = 3.0;
 
 float ComputeFiltersDistance(
         const float* pX_filters,
@@ -364,7 +365,8 @@ float ComputeFiltersDistance(
         return 0.0;
 
     float filtersDistance = 0;
-    float bias = 10 * (W * xy_distance + 3.322);
+    // float bias = 10 * (W * xy_distance + 3.322);
+    float bias = 3.322;
 
     // loop over all filters
     for (int filter_idx = 0; filter_idx < filtersNum; filter_idx++) {
@@ -381,8 +383,12 @@ float ComputeFiltersDistance(
 
     return filtersDistance / filtersNum;
 }
-float computeFusionDistance(const float L2_dist, const float filters_dist) {
-    return W * L2_dist + filters_dist;
+float computeFusionDistance(const float L2_dist, const float filters_dist, float d, float fsize) {
+
+    float DW = d / (d + fsize * W * filterWeight);
+    float FW = 1 - DW;
+
+    return DW * L2_dist + FW * filters_dist;
 }
 
 template <class ResultHandler>
@@ -466,7 +472,7 @@ void exhaustive_fusion_blas_default_impl(
                             fd,
                             nf,
                             l2_dis);
-                    *ip_line = computeFusionDistance(l2_dis, filters_dist);
+                    *ip_line = computeFusionDistance(l2_dis, filters_dist, d, nf * fd);
                     ip_line++;
                 }
             }
